@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CraftPlanner.App/CraftPlanner.App.csproj" />
+    <Project Path="src/CraftPlanner.Core/CraftPlanner.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CraftPlanner.App.Tests/CraftPlanner.App.Tests.csproj" />
+    <Project Path="tests/CraftPlanner.Core.Tests/CraftPlanner.Core.Tests.csproj" />
+  </Folder>
+</Solution>

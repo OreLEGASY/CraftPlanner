@@ -1,0 +1,41 @@
+# v1.2.3 のようなタグを push すると、ビルド・テスト・配布 zip の作成・GitHub Release の作成まで自動で行う。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test (Core)
+        run: dotnet test tests/CraftPlanner.Core.Tests -c Release
+
+      - name: Publish (self-contained, win-x64)
+        run: dotnet publish src/CraftPlanner.App -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          Copy-Item docs/USER_GUIDE.md publish/
+          Compress-Archive -Path publish/* -DestinationPath "CraftPlanner-${{ github.ref_name }}-win-x64.zip"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}" "CraftPlanner-${{ github.ref_name }}-win-x64.zip" `
+            --title "CraftPlanner ${{ github.ref_name }}" `
+            --notes "zip を展開して CraftPlanner.exe を実行してください（.NET ランタイムのインストールは不要です）。操作方法は同梱の USER_GUIDE.md を参照。"

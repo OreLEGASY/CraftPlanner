@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>CraftPlanner</AssemblyName>
+    <RootNamespace>CraftPlanner.App</RootNamespace>
+    <ApplicationIcon>Assets/app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CraftPlanner.Core\CraftPlanner.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CraftPlanner.App.Tests" />
+  </ItemGroup>
+
+  <!-- 操作説明書を実行フォルダーにコピーして、ヘルプメニューから開けるようにする -->
+  <ItemGroup>
+    <None Include="..\..\docs\USER_GUIDE.md" Link="docs\USER_GUIDE.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

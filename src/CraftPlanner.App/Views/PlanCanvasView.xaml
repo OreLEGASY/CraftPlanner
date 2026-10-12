@@ -1,0 +1,461 @@
+<UserControl x:Class="CraftPlanner.App.Views.PlanCanvasView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:CraftPlanner.App.ViewModels"
+             Focusable="True"
+             DataContextChanged="OnDataContextChanged">
+    <UserControl.Resources>
+
+        <!-- ============ 接続線 ============ -->
+        <DataTemplate x:Key="EdgeTemplate" DataType="{x:Type vm:EdgeViewModel}">
+            <Canvas Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}">
+                <!-- 太い透明な線でクリック範囲を広げる -->
+                <Path Data="{Binding PathData}" Stroke="Transparent" StrokeThickness="12" Cursor="Hand"
+                      ToolTip="右クリックで切断／削除">
+                    <Path.ContextMenu>
+                        <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <MenuItem Header="接続を切断（下流ノードを削除）" Command="{Binding SeverCommand}" />
+                            <MenuItem Header="接続線だけを削除（子は独立した目標になる）" Command="{Binding DeleteEdgeCommand}" />
+                        </ContextMenu>
+                    </Path.ContextMenu>
+                </Path>
+                <Path Data="{Binding PathData}" StrokeThickness="2" IsHitTestVisible="False">
+                    <Path.Style>
+                        <Style TargetType="Path">
+                            <Setter Property="Stroke" Value="#8A94A6" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsEmphasized}" Value="True">
+                                    <Setter Property="Stroke" Value="{StaticResource AccentBrush}" />
+                                    <Setter Property="StrokeThickness" Value="3" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsDimmed}" Value="True">
+                                    <Setter Property="Opacity" Value="0.3" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Path.Style>
+                </Path>
+                <Border Canvas.Left="{Binding MidX}" Canvas.Top="{Binding MidY}" Margin="-14,-10,0,0" Background="#F4F5F7"
+                        BorderBrush="#C9CED8" BorderThickness="1" CornerRadius="8" Padding="5,1" IsHitTestVisible="False"
+                        Visibility="{Binding Label, Converter={StaticResource NullToVis}}">
+                    <TextBlock Text="{Binding Label}" FontSize="11" />
+                </Border>
+            </Canvas>
+        </DataTemplate>
+
+        <!-- ============ 切断された接続 ============ -->
+        <DataTemplate x:Key="SeveredEdgeTemplate" DataType="{x:Type vm:SeveredEdgeViewModel}">
+            <Canvas Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}">
+                <Path Data="{Binding PathData}" Stroke="{StaticResource WarnBrush}" StrokeThickness="2" StrokeDashArray="3 2" />
+                <Button Canvas.Left="{Binding X}" Canvas.Top="{Binding Y}" Command="{Binding ReconnectCommand}"
+                        Style="{StaticResource SmallButton}" Background="#FFF1F1" BorderBrush="{StaticResource WarnBrush}"
+                        Content="{Binding Label}" Foreground="{StaticResource WarnBrush}" Cursor="Hand"
+                        ToolTip="切断された接続です。クリックすると素材ツリーを再生成して再接続します。" />
+            </Canvas>
+        </DataTemplate>
+
+        <!-- ============ アイテムノード ============ -->
+        <DataTemplate x:Key="ItemNodeTemplate" DataType="{x:Type vm:ItemNodeViewModel}">
+            <Grid>
+                <Border x:Name="NodeBorder" Background="{StaticResource NodeBrush}" CornerRadius="6" Padding="6" MinWidth="200" MaxWidth="280"
+                        BorderThickness="2" Cursor="SizeAll" SnapsToDevicePixels="True"
+                        MouseLeftButtonDown="Node_MouseLeftButtonDown" MouseEnter="Node_MouseEnter" MouseLeave="Node_MouseLeave"
+                        SizeChanged="Node_SizeChanged">
+                    <Border.ToolTip>
+                        <ToolTip Content="{Binding ToolTipText}" />
+                    </Border.ToolTip>
+                    <Border.ContextMenu>
+                        <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <MenuItem Header="素材ツリーを展開" Command="{Binding ExpandCommand}" IsEnabled="{Binding CanExpand}" />
+                            <MenuItem Header="折りたたみ／展開表示" Command="{Binding ToggleCollapseCommand}" IsEnabled="{Binding HasChildren}" />
+                            <MenuItem Header="レシピを変更…" Command="{Binding ChangeRecipeCommand}" IsEnabled="{Binding HasRecipes}" />
+                            <MenuItem Header="子ノードを整列" Command="{Binding ArrangeCommand}" IsEnabled="{Binding HasChildren}" />
+                            <Separator />
+                            <MenuItem Header="上流との接続を切断" Command="{Binding SeverFromParentCommand}" IsEnabled="{Binding IsTarget, Converter={StaticResource InverseBool}}" />
+                            <MenuItem Header="複製 (Ctrl+D)" Command="{Binding DuplicateCommand}" />
+                            <MenuItem Header="ノードを削除 (Delete)" Command="{Binding DeleteCommand}" />
+                        </ContextMenu>
+                    </Border.ContextMenu>
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="BorderBrush" Value="{Binding Craftability, Converter={StaticResource CraftabilityBrush}}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsCycle}" Value="True">
+                                    <Setter Property="Background" Value="{StaticResource CycleBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsUncertain}" Value="True">
+                                    <Setter Property="Background" Value="#FFF4E8" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                    <Setter Property="BorderThickness" Value="3" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
+                                    <Setter Property="Effect">
+                                        <Setter.Value>
+                                            <DropShadowEffect Color="#2F6FED" BlurRadius="14" ShadowDepth="0" Opacity="0.8" />
+                                        </Setter.Value>
+                                    </Setter>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsDimmed}" Value="True">
+                                    <Setter Property="Opacity" Value="0.35" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel>
+                        <!-- ヘッダー: アイコン・名前・数量 -->
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource SmallButton}" Command="{Binding ToggleCollapseCommand}"
+                                    Visibility="{Binding HasChildren, Converter={StaticResource BoolToVis}}" ToolTip="下流ノードを折りたたみ／表示（計算は変わりません）">
+                                <Button.Content>
+                                    <TextBlock>
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="▾" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsCollapsed}" Value="True">
+                                                        <Setter Property="Text" Value="▸…" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Button.Content>
+                            </Button>
+                            <Image Source="{Binding Icon}" Width="28" Height="28" Margin="0,0,6,0" VerticalAlignment="Center"
+                                   Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="必要 " Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+                                    <!-- 目標なら編集可、子なら計算値 -->
+                                    <TextBox Width="48" Text="{Binding RequiredQuantity, UpdateSourceTrigger=LostFocus}" FontSize="12" Padding="2,0"
+                                             Visibility="{Binding IsTarget, Converter={StaticResource BoolToVis}}" ToolTip="この目標の必要数量" />
+                                    <TextBlock Text="{Binding Demand}" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               Visibility="{Binding IsTarget, Converter={StaticResource BoolToVisInverse}}" />
+                                    <TextBlock Text=" 個" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+                                    <TextBlock Text=" (目標)" Style="{StaticResource MutedText}" VerticalAlignment="Center"
+                                               Visibility="{Binding IsTarget, Converter={StaticResource BoolToVis}}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </DockPanel>
+
+                        <!-- 詳細表示 -->
+                        <StackPanel Visibility="{Binding IsDetailed, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="{Binding Summary}" Style="{StaticResource MutedText}" TextWrapping="Wrap" MaxHeight="34" TextTrimming="CharacterEllipsis"
+                                       Visibility="{Binding Summary, Converter={StaticResource NullToVis}}" Margin="0,2,0,0" />
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,8,0">
+                                    <TextBlock Text="所持 " Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+                                    <TextBox Width="44" Text="{Binding OnHand, UpdateSourceTrigger=LostFocus}" FontSize="12" Padding="2,0" ToolTip="計画内の所持数（同じアイテムのノードで共有）" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,8,0">
+                                    <TextBlock Text="不足 " Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding ItemShortage}" FontWeight="SemiBold" VerticalAlignment="Center" ToolTip="このアイテムの計画全体での不足数" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" Text="{Binding CraftsText}" Style="{StaticResource MutedText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                            <DockPanel Margin="0,4,0,0" Visibility="{Binding HasRecipes, Converter={StaticResource BoolToVis}}">
+                                <Button DockPanel.Dock="Right" Style="{StaticResource SmallButton}" Content="展開" Command="{Binding ExpandCommand}"
+                                        Visibility="{Binding CanExpand, Converter={StaticResource BoolToVis}}" ToolTip="このレシピの素材ツリーを生成" />
+                                <Button DockPanel.Dock="Right" Style="{StaticResource SmallButton}" Content="変更…" Command="{Binding ChangeRecipeCommand}"
+                                        ToolTip="別のレシピの素材をプレビューして採用" />
+                                <TextBlock Text="{Binding RecipeName}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            </DockPanel>
+                            <ItemsControl ItemsSource="{Binding MaterialLines}" Margin="0,2,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:MaterialLineViewModel}">
+                                        <DockPanel Margin="0,1">
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource SmallButton}" Content="切断" Command="{Binding SeverCommand}"
+                                                    Visibility="{Binding IsConnected, Converter={StaticResource BoolToVis}}" ToolTip="この素材への接続を切断し、下流を計算から外す" />
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource SmallButton}" Content="再接続" Command="{Binding ReconnectCommand}"
+                                                    Visibility="{Binding IsSevered, Converter={StaticResource BoolToVis}}" Foreground="{StaticResource WarnBrush}" />
+                                            <TextBlock FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                                                <Run Text="・" /><Run Text="{Binding Name, Mode=OneWay}" /><Run Text=" ×" /><Run Text="{Binding PerCraft, Mode=OneWay}" />
+                                                <Run Text=" → " /><Run Text="{Binding Required, Mode=OneWay}" FontWeight="SemiBold" />
+                                                <Run Text="{Binding StateText, Mode=OneWay}" Foreground="{StaticResource WarnBrush}" />
+                                            </TextBlock>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
+                        <TextBlock Text="{Binding WarningsText}" Foreground="{StaticResource WarnBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0"
+                                   Visibility="{Binding HasWarnings, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
+                </Border>
+                <!-- 接続ポート: ドラッグして素材ノードへ -->
+                <Ellipse Width="12" Height="12" Fill="{StaticResource AccentBrush}" Stroke="White" StrokeThickness="2"
+                         HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,-6,0" Cursor="Cross"
+                         Visibility="{Binding HasRecipes, Converter={StaticResource BoolToVis}}"
+                         MouseLeftButtonDown="Port_MouseLeftButtonDown"
+                         ToolTip="ここからドラッグして、既存の素材ノードに接続できます" />
+            </Grid>
+        </DataTemplate>
+
+        <!-- ============ メモノード ============ -->
+        <DataTemplate x:Key="MemoNodeTemplate" DataType="{x:Type vm:MemoNodeViewModel}">
+            <Grid Width="{Binding Width}" Height="{Binding Height}">
+                <Border Background="{Binding ColorKey, Converter={StaticResource MemoColor}}" CornerRadius="4" BorderThickness="1"
+                        MouseLeftButtonDown="Node_MouseLeftButtonDown">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="BorderBrush" Value="#00000030" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                    <Setter Property="BorderThickness" Value="2" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Border.ContextMenu>
+                        <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <MenuItem Header="背景色">
+                                <MenuItem Header="黄" Command="{Binding SetColorCommand}" CommandParameter="yellow" />
+                                <MenuItem Header="青" Command="{Binding SetColorCommand}" CommandParameter="blue" />
+                                <MenuItem Header="緑" Command="{Binding SetColorCommand}" CommandParameter="green" />
+                                <MenuItem Header="桃" Command="{Binding SetColorCommand}" CommandParameter="pink" />
+                                <MenuItem Header="橙" Command="{Binding SetColorCommand}" CommandParameter="orange" />
+                                <MenuItem Header="灰" Command="{Binding SetColorCommand}" CommandParameter="gray" />
+                            </MenuItem>
+                            <MenuItem Header="複製 (Ctrl+D)" Command="{Binding DuplicateCommand}" />
+                            <MenuItem Header="メモを削除 (Delete)" Command="{Binding DeleteCommand}" />
+                        </ContextMenu>
+                    </Border.ContextMenu>
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Height="16" Background="#18000000" Cursor="SizeAll" ToolTip="ドラッグで移動。右クリックで色の変更">
+                            <TextBlock Text="メモ" FontSize="10" Foreground="#80000000" Margin="6,0" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBox Text="{Binding Text, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" TextWrapping="Wrap"
+                                 Background="Transparent" BorderThickness="0" Padding="6,4" VerticalScrollBarVisibility="Auto"
+                                 VerticalContentAlignment="Top" />
+                    </DockPanel>
+                </Border>
+                <Thumb Width="14" Height="14" HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="SizeNWSE" Opacity="0.6"
+                       DragStarted="MemoResize_DragStarted" DragDelta="MemoResize_DragDelta" DragCompleted="MemoResize_DragCompleted">
+                    <Thumb.Template>
+                        <ControlTemplate TargetType="Thumb">
+                            <Polygon Points="14,0 14,14 0,14" Fill="#60000000" />
+                        </ControlTemplate>
+                    </Thumb.Template>
+                </Thumb>
+            </Grid>
+        </DataTemplate>
+
+        <Style x:Key="PositionedItem" TargetType="ContentPresenter">
+            <Setter Property="Canvas.Left" Value="{Binding X}" />
+            <Setter Property="Canvas.Top" Value="{Binding Y}" />
+        </Style>
+        <Style x:Key="PositionedNode" TargetType="ContentPresenter" BasedOn="{StaticResource PositionedItem}">
+            <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}" />
+        </Style>
+    </UserControl.Resources>
+
+    <DockPanel>
+        <!-- ============ ツールバー ============ -->
+        <ToolBarTray DockPanel.Dock="Top" IsLocked="True">
+            <ToolBar>
+                <Button Content="アイテムを追加…" Click="AddItem_Click" ToolTip="アイテムを選んで配置します。制作目標として展開するか、ノードだけ置くかを選べます" />
+                <Button Content="メモを追加" Click="AddMemo_Click" />
+                <Separator />
+                <Button Content="元に戻す" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" ToolTip="Ctrl+Z" />
+                <Button Content="やり直す" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" ToolTip="Ctrl+Y" />
+                <Separator />
+                <Button Content="自動整列" Click="ArrangeAll_Click" ToolTip="すべての素材ツリーを左上から並べ直します（メモは動きません。Ctrl+Z で戻せます）" />
+                <Button Content="全体表示" Click="FitAll_Click" />
+                <TextBlock Text="{Binding Zoom, Converter={StaticResource ZoomPercent}}" VerticalAlignment="Center" Margin="4,0" MinWidth="40" />
+                <CheckBox Content="詳細表示" IsChecked="{Binding IsDetailed}" VerticalAlignment="Center" Margin="8,0" ToolTip="シンプル表示／詳細表示の切り替え（計画全体）" />
+                <Separator />
+                <Button Content="選択ノードを削除" Command="{Binding DeleteSelectedCommand}" ToolTip="Delete" />
+            </ToolBar>
+        </ToolBarTray>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="300" MinWidth="200" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ============ キャンバス ============ -->
+            <Grid>
+                <Border x:Name="Viewport" Background="#FAFBFC" ClipToBounds="True" AllowDrop="True" Focusable="True"
+                        MouseWheel="Viewport_MouseWheel"
+                        MouseLeftButtonDown="Viewport_MouseLeftButtonDown"
+                        MouseMove="Viewport_MouseMove"
+                        MouseLeftButtonUp="Viewport_MouseLeftButtonUp"
+                        MouseRightButtonDown="Viewport_MouseRightButtonDown"
+                        Drop="Viewport_Drop"
+                        KeyDown="Viewport_KeyDown">
+                    <Border.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="ここにアイテムを追加…" Click="AddItemHere_Click" />
+                            <MenuItem Header="ここにメモを追加" Click="AddMemoHere_Click" />
+                            <Separator />
+                            <MenuItem Header="貼り付け (Ctrl+V)" Command="{Binding PasteCommand}" />
+                            <MenuItem Header="自動整列" Click="ArrangeAll_Click" />
+                            <MenuItem Header="全体表示" Click="FitAll_Click" />
+                        </ContextMenu>
+                    </Border.ContextMenu>
+                    <Canvas x:Name="World">
+                        <Canvas.RenderTransform>
+                            <TransformGroup>
+                                <ScaleTransform ScaleX="{Binding Zoom}" ScaleY="{Binding Zoom}" />
+                                <TranslateTransform X="{Binding OffsetX}" Y="{Binding OffsetY}" />
+                            </TransformGroup>
+                        </Canvas.RenderTransform>
+                        <ItemsControl ItemsSource="{Binding Edges}" ItemTemplate="{StaticResource EdgeTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <ItemsControl ItemsSource="{Binding MemoNodes}" ItemTemplate="{StaticResource MemoNodeTemplate}"
+                                      ItemContainerStyle="{StaticResource PositionedItem}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <ItemsControl ItemsSource="{Binding ItemNodes}" ItemTemplate="{StaticResource ItemNodeTemplate}"
+                                      ItemContainerStyle="{StaticResource PositionedNode}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <!-- 切断マーカーはノードより手前に描き、重なっても押せるようにする -->
+                        <ItemsControl ItemsSource="{Binding SeveredEdges}" ItemTemplate="{StaticResource SeveredEdgeTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <Path x:Name="TempLink" Stroke="{StaticResource AccentBrush}" StrokeThickness="2" StrokeDashArray="4 2"
+                              Visibility="Collapsed" IsHitTestVisible="False" />
+                    </Canvas>
+                </Border>
+
+                <!-- 空のキャンバスの案内 -->
+                <TextBlock IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}" FontSize="14" TextWrapping="Wrap" MaxWidth="420">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding ItemNodes.Count}" Value="0" />
+                                        <Condition Binding="{Binding MemoNodes.Count}" Value="0" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                    「制作計画を追加…」で目標アイテムを選ぶと素材ツリーが生成されます。<LineBreak />
+                    左のアイテム一覧からキャンバスへドラッグして配置することもできます。<LineBreak />
+                    <Run FontSize="12">ホイール: 拡大縮小 / 空白をドラッグ: 移動 / ノードをドラッグ: 配置</Run>
+                </TextBlock>
+
+                <!-- 通知 -->
+                <Border x:Name="NoticeBar" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,12" Padding="12,6"
+                        Background="#333B4A" CornerRadius="6" Visibility="Collapsed" MaxWidth="700">
+                    <TextBlock x:Name="NoticeText" Foreground="White" TextWrapping="Wrap" />
+                </Border>
+            </Grid>
+
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="{StaticResource BorderBrushLight}" />
+
+            <!-- ============ 集計パネル ============ -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Background="{StaticResource PanelBrush}">
+                <StackPanel Margin="8">
+                    <TextBlock Text="計画全体（確定値）" Style="{StaticResource HeaderText}" />
+                    <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,4"
+                               Text="所持数は同じアイテムで共有され、制作余剰はほかの需要に充当されます。所持列は編集できます。" />
+                    <Grid Margin="0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="40" />
+                            <ColumnDefinition Width="44" />
+                            <ColumnDefinition Width="40" />
+                            <ColumnDefinition Width="40" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="アイテム" Style="{StaticResource MutedText}" />
+                        <TextBlock Grid.Column="1" Text="必要" Style="{StaticResource MutedText}" TextAlignment="Right" />
+                        <TextBlock Grid.Column="2" Text="所持" Style="{StaticResource MutedText}" TextAlignment="Right" />
+                        <TextBlock Grid.Column="3" Text="余剰" Style="{StaticResource MutedText}" TextAlignment="Right" />
+                        <TextBlock Grid.Column="4" Text="不足" Style="{StaticResource MutedText}" TextAlignment="Right" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Totals}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:ItemTotalViewModel}">
+                                <Grid Margin="0,1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="40" />
+                                        <ColumnDefinition Width="44" />
+                                        <ColumnDefinition Width="40" />
+                                        <ColumnDefinition Width="40" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Name}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Gross}" TextAlignment="Right" VerticalAlignment="Center" />
+                                    <TextBox Grid.Column="2" Text="{Binding OnHand, UpdateSourceTrigger=LostFocus}" TextAlignment="Right" FontSize="12" Padding="2,0" Margin="2,0" />
+                                    <TextBlock Grid.Column="3" Text="{Binding Surplus}" TextAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                                    <TextBlock Grid.Column="4" Text="{Binding ShortageText}" TextAlignment="Right" VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasShortage}" Value="True">
+                                                        <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Text="目標別（参考値）" Style="{StaticResource HeaderText}" Margin="0,14,0,2" />
+                    <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,4"
+                               Text="目標ごとの必要数です。所持品を特定の目標に配分しないため、不足は参考値です。確定値は上の計画全体を参照してください。" />
+                    <ItemsControl ItemsSource="{Binding Targets}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:TargetSummaryViewModel}">
+                                <Expander Header="{Binding Header}" IsExpanded="True" Margin="0,2">
+                                    <ItemsControl ItemsSource="{Binding Lines}" Margin="8,2,0,2">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:TargetLineViewModel}">
+                                                <Grid Margin="0,1">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="34" />
+                                                        <ColumnDefinition Width="40" />
+                                                        <ColumnDefinition Width="40" />
+                                                        <ColumnDefinition Width="40" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding Kind}" FontSize="10" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding Required}" TextAlignment="Right" FontSize="12" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding OnHand}" TextAlignment="Right" FontSize="12" Foreground="{StaticResource MutedBrush}" />
+                                                    <TextBlock Grid.Column="4" Text="{Binding ReferenceShortage}" TextAlignment="Right" FontSize="12" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Expander>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</UserControl>

@@ -1,0 +1,216 @@
+<Window x:Class="CraftPlanner.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:CraftPlanner.App.ViewModels"
+        xmlns:views="clr-namespace:CraftPlanner.App.Views"
+        xmlns:local="clr-namespace:CraftPlanner.App"
+        Title="CraftPlanner - ゲーム素材・レシピ管理" Width="1400" Height="900" MinWidth="900" MinHeight="600"
+        Loaded="Window_Loaded" Closing="Window_Closing">
+    <Window.CommandBindings>
+        <CommandBinding Command="ApplicationCommands.Save" Executed="Save_Executed" />
+        <CommandBinding Command="ApplicationCommands.Undo" Executed="Undo_Executed" />
+        <CommandBinding Command="ApplicationCommands.Redo" Executed="Redo_Executed" />
+        <CommandBinding Command="ApplicationCommands.Copy" Executed="Copy_Executed" />
+        <CommandBinding Command="ApplicationCommands.Paste" Executed="Paste_Executed" />
+        <CommandBinding Command="ApplicationCommands.Find" Executed="Find_Executed" />
+        <CommandBinding Command="local:MainWindow.DuplicateCommand" Executed="Duplicate_Executed" />
+    </Window.CommandBindings>
+    <Window.InputBindings>
+        <KeyBinding Gesture="Ctrl+D" Command="local:MainWindow.DuplicateCommand" />
+        <KeyBinding Gesture="Ctrl+Y" Command="ApplicationCommands.Redo" />
+    </Window.InputBindings>
+
+    <DockPanel>
+        <!-- ============ メニュー ============ -->
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="ファイル(_F)">
+                <MenuItem Header="すべて保存" Command="ApplicationCommands.Save" InputGestureText="Ctrl+S" />
+                <Separator />
+                <MenuItem Header="バックアップと復元…" Click="Backups_Click" />
+                <MenuItem Header="データフォルダーを開く" Click="OpenDataFolder_Click" />
+                <Separator />
+                <MenuItem Header="終了" Click="Exit_Click" />
+            </MenuItem>
+            <MenuItem Header="ゲームデータ(_G)">
+                <MenuItem Header="ゲームデータの管理…" Click="ManageGames_Click" />
+                <Separator />
+                <MenuItem Header="JSON に書き出し…" Click="ExportGameJson_Click" />
+                <MenuItem Header="JSON から取り込み…" Click="ImportGameJson_Click" />
+                <Separator />
+                <MenuItem Header="アイテム CSV に書き出し…" Click="ExportItemCsv_Click" />
+                <MenuItem Header="アイテム CSV から取り込み…" Click="ImportItemCsv_Click" />
+                <MenuItem Header="レシピ CSV に書き出し…" Click="ExportRecipeCsv_Click" />
+                <MenuItem Header="レシピ CSV から取り込み…" IsEnabled="False"
+                          ToolTip="レシピ CSV の列構成と更新ルールは確認中のため、取り込みはまだ提供していません（設計書 10 章）" />
+            </MenuItem>
+            <MenuItem Header="計画(_P)">
+                <MenuItem Header="新しい制作計画…" Click="NewPlan_Click" />
+                <MenuItem Header="制作計画を開く…" Click="OpenPlan_Click" />
+                <MenuItem Header="計画の名前を変更…" Click="RenamePlan_Click" />
+                <MenuItem Header="タブを閉じる" Click="CloseTab_Click" />
+                <Separator />
+                <MenuItem Header="計画を JSON に書き出し…" Click="ExportPlanJson_Click" />
+                <MenuItem Header="計画を JSON から取り込み…" Click="ImportPlanJson_Click" />
+                <Separator />
+                <MenuItem Header="この計画を削除…" Click="DeletePlan_Click" />
+            </MenuItem>
+            <MenuItem Header="編集(_E)">
+                <MenuItem Header="元に戻す" Command="ApplicationCommands.Undo" InputGestureText="Ctrl+Z" />
+                <MenuItem Header="やり直す" Command="ApplicationCommands.Redo" InputGestureText="Ctrl+Y" />
+                <Separator />
+                <MenuItem Header="コピー" Command="ApplicationCommands.Copy" InputGestureText="Ctrl+C" />
+                <MenuItem Header="貼り付け" Command="ApplicationCommands.Paste" InputGestureText="Ctrl+V" />
+                <MenuItem Header="複製" Command="local:MainWindow.DuplicateCommand" InputGestureText="Ctrl+D" />
+                <MenuItem Header="選択ノードを削除" Click="DeleteSelected_Click" InputGestureText="Delete" />
+                <Separator />
+                <MenuItem Header="アイテムを検索" Command="ApplicationCommands.Find" InputGestureText="Ctrl+F" />
+            </MenuItem>
+            <MenuItem Header="表示(_V)">
+                <MenuItem Header="詳細表示" IsCheckable="True" IsChecked="{Binding ActivePlan.IsDetailed}" />
+                <MenuItem Header="全体表示" Click="FitAll_Click" />
+                <MenuItem Header="アイテム一覧を表示" IsCheckable="True" IsChecked="True" x:Name="ShowItemsMenu" Click="ToggleItems_Click" />
+            </MenuItem>
+            <MenuItem Header="ヘルプ(_H)">
+                <MenuItem Header="操作方法（USER_GUIDE.md）" Click="OpenGuide_Click" />
+                <MenuItem Header="バージョン情報" Click="About_Click" />
+            </MenuItem>
+        </Menu>
+
+        <!-- ============ ステータスバー ============ -->
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock Text="{Binding StatusText}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding StatusIsError}" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right">
+                <TextBlock Foreground="{StaticResource WarnBrush}" FontWeight="SemiBold" Margin="0,0,8,0"
+                           Visibility="{Binding HasUnsavedChanges, Converter={StaticResource BoolToVis}}" Text="未保存の変更あり（自動保存待ち／Ctrl+S）" />
+            </StatusBarItem>
+        </StatusBar>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ItemsColumn" Width="320" MinWidth="0" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ============ アイテム一覧 ============ -->
+            <DockPanel x:Name="ItemsPanel" Background="{StaticResource PanelBrush}">
+                <StackPanel DockPanel.Dock="Top" Margin="8,8,8,4">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="管理…" Click="ManageGames_Click" ToolTip="ゲームデータの作成・名前変更・削除" />
+                        <ComboBox ItemsSource="{Binding Games}" SelectedItem="{Binding SelectedGame}" DisplayMemberPath="Name" Margin="0,2" />
+                    </DockPanel>
+                    <TextBox x:Name="SearchBox" Text="{Binding ItemList.SearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"
+                             ToolTip="名前・概要・詳細説明・入手方法を検索 (Ctrl+F)" />
+                    <DockPanel Margin="0,4,0,0">
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding ItemList.CountText}" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+                        <ComboBox ItemsSource="{x:Static vm:ItemListViewModel.SortOptions}" SelectedIndex="{Binding ItemList.SortIndex}" Width="130" HorizontalAlignment="Left" />
+                    </DockPanel>
+                    <WrapPanel Margin="0,4,0,0">
+                        <Button Content="新規" Click="NewItem_Click" />
+                        <Button Content="編集" Click="EditItem_Click" />
+                        <Button Content="削除" Click="DeleteItem_Click" />
+                        <Button Content="ノードだけ追加" Click="AddToCanvas_Click" ToolTip="選択アイテムを開いている計画に 1 ノードとして追加（展開しない）" />
+                        <Button Content="目標として展開" Click="AddTreeToCanvas_Click" ToolTip="選択アイテムを制作目標として追加し、素材ツリーを自動で展開" />
+                    </WrapPanel>
+                </StackPanel>
+                <ListBox x:Name="ItemListBox" ItemsSource="{Binding ItemList.Cards}" SelectedItem="{Binding ItemList.SelectedCard}"
+                         Margin="8,0,8,8" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         MouseDoubleClick="ItemListBox_MouseDoubleClick" PreviewMouseLeftButtonDown="ItemListBox_PreviewMouseLeftButtonDown"
+                         PreviewMouseMove="ItemListBox_PreviewMouseMove">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:ItemCardViewModel}">
+                            <Border Padding="6,4" ToolTip="{Binding ToolTipText}">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Left" Width="40" Height="40" Margin="0,0,8,0" Background="#E9EBEF" CornerRadius="4">
+                                        <Image Source="{Binding Icon}" Stretch="Uniform" Margin="2" />
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Summary}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding Summary, Converter={StaticResource NullToVis}}" />
+                                        <TextBlock Text="{Binding MetaText}" Style="{StaticResource MutedText}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                    <ListBox.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="編集…" Click="EditItem_Click" />
+                            <MenuItem Header="キャンバスに追加" Click="AddToCanvas_Click" />
+                            <MenuItem Header="制作計画として展開" Click="AddTreeToCanvas_Click" />
+                            <Separator />
+                            <MenuItem Header="削除…" Click="DeleteItem_Click" />
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
+                </ListBox>
+            </DockPanel>
+
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="{StaticResource BorderBrushLight}" />
+
+            <!-- ============ 計画タブ ============ -->
+            <Grid Grid.Column="2">
+                <TabControl x:Name="PlanTabs" ItemsSource="{Binding OpenPlans}" SelectedItem="{Binding ActivePlan}">
+                    <TabControl.ItemContainerStyle>
+                        <Style TargetType="TabItem">
+                            <Setter Property="AllowDrop" Value="True" />
+                            <EventSetter Event="PreviewMouseMove" Handler="TabItem_PreviewMouseMove" />
+                            <EventSetter Event="Drop" Handler="TabItem_Drop" />
+                            <EventSetter Event="MouseDown" Handler="TabItem_MouseDown" />
+                        </Style>
+                    </TabControl.ItemContainerStyle>
+                    <TabControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:PlanViewModel}">
+                            <StackPanel Orientation="Horizontal" ToolTip="ドラッグで並び替え。中クリックで閉じる">
+                                <TextBlock Text="{Binding TabTitle}" VerticalAlignment="Center" />
+                                <TextBlock Text=" ⚠" Foreground="{StaticResource WarnBrush}" ToolTip="保存に失敗しています"
+                                           Visibility="{Binding SaveFailed, Converter={StaticResource BoolToVis}}" />
+                                <Button Content="×" Style="{StaticResource LinkButton}" Foreground="{StaticResource MutedBrush}" Margin="6,0,0,0"
+                                        Click="CloseTabButton_Click" ToolTip="タブを閉じる（計画は削除されません）" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </TabControl.ItemTemplate>
+                    <TabControl.ContentTemplate>
+                        <DataTemplate DataType="{x:Type vm:PlanViewModel}">
+                            <views:PlanCanvasView x:Name="Canvas" />
+                        </DataTemplate>
+                    </TabControl.ContentTemplate>
+                </TabControl>
+                <!-- タブ列の右端: 新しい計画を作る -->
+                <Button Content="＋ 新しい計画" Click="NewPlan_Click" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,1,6,0" Padding="8,1" MinHeight="20"
+                        ToolTip="新しい制作計画を作成してタブで開きます" />
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding OpenPlans.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="制作計画が開かれていません" FontSize="16" Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Center" />
+                    <TextBlock Text="「計画」メニューから新しい計画を作るか、既存の計画を開いてください。" Foreground="{StaticResource MutedBrush}" Margin="0,6" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button Content="新しい制作計画…" Click="NewPlan_Click" Padding="14,6" />
+                        <Button Content="制作計画を開く…" Click="OpenPlan_Click" Padding="14,6" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>
